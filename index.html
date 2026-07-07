@@ -124,6 +124,7 @@ footer{text-align:center;color:var(--mut);font-size:11px;padding:20px}
       <select id="addSec"></select>
       <button class="ghost" id="btnAddTaken">Add as taken</button>
     </div>
+    <label class="small mut" style="display:inline-block;margin-top:6px"><input type="checkbox" id="addShowAll"> show entire AISIS catalog (not just this semester's subjects)</label>
   </div>
 </section>
 
@@ -257,7 +258,74 @@ footer{text-align:center;color:var(--mut);font-size:11px;padding:20px}
    "RUSS 11",
    "SPA 11"
   ],
-  "pepcPrefix": "PEPC"
+  "pepcCodes": [
+   "PEPC 11.30",
+   "PEPC 13.03",
+   "PEPC 13.04",
+   "PEPC 13.05",
+   "PEPC 13.07",
+   "PEPC 13.09",
+   "PEPC 13.14",
+   "PEPC 13.15",
+   "PEPC 14.03",
+   "PEPC 14.04",
+   "PEPC 14.06",
+   "PEPC 15.06",
+   "PEPC 15.07",
+   "PEPC 15.08",
+   "PEPC 15.26",
+   "PEPC 16.03",
+   "PEPC 16.04",
+   "PEPC 16.15",
+   "PEPC 16.19",
+   "PEPC 17.13",
+   "PEPC 18.03",
+   "PEPC 18.04",
+   "PEPC 19.03",
+   "PEPC 19.53"
+  ],
+  "pepcPrefix": "PEPC",
+  "eligible": [
+   "CSP 11",
+   "FAA 101.10",
+   "FRE 11",
+   "GER 11",
+   "HISTO 12",
+   "ITA 11",
+   "JPN 11",
+   "KRN 11",
+   "LLAW 115",
+   "MATH 31.3",
+   "NSTP 11(CWTS)",
+   "PEPC 11.30",
+   "PEPC 13.03",
+   "PEPC 13.04",
+   "PEPC 13.05",
+   "PEPC 13.07",
+   "PEPC 13.09",
+   "PEPC 13.14",
+   "PEPC 13.15",
+   "PEPC 14.03",
+   "PEPC 14.04",
+   "PEPC 14.06",
+   "PEPC 15.06",
+   "PEPC 15.07",
+   "PEPC 15.08",
+   "PEPC 15.26",
+   "PEPC 16.03",
+   "PEPC 16.04",
+   "PEPC 16.15",
+   "PEPC 16.19",
+   "PEPC 17.13",
+   "PEPC 18.03",
+   "PEPC 18.04",
+   "PEPC 19.03",
+   "PEPC 19.53",
+   "RUSS 11",
+   "SPA 11",
+   "STS 10",
+   "THEO 12"
+  ]
  },
  "classes": [
   {
@@ -87224,14 +87292,21 @@ function renderTaken(unparsed) {
   $("#unparsed").innerHTML = unparsed && unparsed.length
     ? `<div class="warnbox"><b>Couldn't match these lines</b> — add them manually below if they're real classes:<br>${unparsed.map(esc).join("<br>")}</div>` : "";
 }
-/* manual add */
+/* manual add — defaults to this semester's actual enlistable subjects
+   (per the batch dashboard), with an opt-out to the full merged catalog
+   for the rare case a real IPS line falls outside that set. */
+const ELIGIBLE = new Set(DATA.subjects.eligible || []);
 function fillAddSelectors() {
-  const subs = [...new Set(CLASSES.map(c => c.subject))].sort();
+  const showAll = $("#addShowAll").checked;
+  const subs = [...new Set(CLASSES.map(c => c.subject))].filter(s => showAll || ELIGIBLE.has(s)).sort();
+  const prevSubj = $("#addSubj").value;
   $("#addSubj").innerHTML = subs.map(s => `<option>${esc(s)}</option>`).join("");
+  if (subs.includes(prevSubj)) $("#addSubj").value = prevSubj;
   const upd = () => { const s = $("#addSubj").value;
     $("#addSec").innerHTML = CLASSES.filter(c => c.subject === s).map(c => `<option value="${c.id}">${esc(c.section)} — ${esc(c.time.replace(" (FULLY ONSITE)",""))}</option>`).join(""); };
   $("#addSubj").onchange = upd; upd();
 }
+$("#addShowAll").onchange = fillAddSelectors;
 $("#btnAddTaken").onclick = () => { const id = +$("#addSec").value; if (!S.taken.includes(id)) { S.taken.push(id); save(); renderTaken([]); } };
 
 /* ---------- conflicts ---------- */
