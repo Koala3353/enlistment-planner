@@ -59,6 +59,7 @@ h2{font:700 19px/1.2 var(--display);margin:0;letter-spacing:-.01em}
 .subj .x{border:0;background:none;color:var(--mute);font-size:18px;line-height:1;padding:2px 4px}
 .subj .x:hover{color:var(--bad)}
 .dot{width:10px;height:10px;border-radius:3px;flex:none}
+.subj .pe{order:6;flex-basis:calc(100% - 18px);margin-left:18px;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;background:#fff;max-width:calc(100% - 18px)}
 .add{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .add input{flex:1;min-width:180px;max-width:340px;border:1px solid var(--line);border-radius:999px;padding:8px 16px;background:var(--paper)}
 .err-msg{color:var(--bad);font-size:13px;margin-top:6px}
@@ -517,6 +518,22 @@ function longGaps(classes) {
 
 /* ---------------- render: subjects ---------------- */
 const colorOf = it => COLORS[Math.max(0, S.items.indexOf(it)) % COLORS.length];
+/* PE activity picker on the PATHFit card: your shortlist, any activity, or one specific activity */
+const isPE = it => /^PATHFit/i.test(it.label) || (it.codes.length && it.codes.every(c => c.startsWith("PEPC")));
+const peTitle = code => titleCase(((BYSUBJ[code] || [])[0] || {}).title || code);
+function peSelectHTML(it) {
+  if (!it.baseCodes) it.baseCodes = it.codes.slice();          // the shortlist from your plan
+  const cur = it.pe || "short";
+  const all = [...(DATA.groups.PATHFit || [])].sort((a, b) => peTitle(a).localeCompare(peTitle(b)));
+  const count = code => (BYSUBJ[code] || []).filter(c => c.section.startsWith("PFT") && genderOk(c) && !c.restricted).length;
+  const opt = (v, label) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(label)}</option>`;
+  return `<label class="sr" for="pe_${it.id}">PE activity for ${esc(it.label)}</label>
+    <select class="pe" id="pe_${it.id}">
+      ${opt("short", "My shortlist: " + it.baseCodes.map(peTitle).join(", "))}
+      ${opt("any", "Any activity (best prof wins)")}
+      <optgroup label="One activity only">${all.map(c => opt(c, `${peTitle(c)} (${count(c)} sections)`)).join("")}</optgroup>
+    </select>`;
+}
 function renderSubjects() {
   const ul = $("#subjList"); ul.innerHTML = "";
   if (!S.items.length) ul.innerHTML = `<li class="mute" style="font-size:14px">No subjects yet. Paste from AISIS, or add them one at a time.</li>`;
@@ -526,8 +543,14 @@ function renderSubjects() {
       <span class="code">${esc(it.label)}${it.pre ? ` <span class="pin" title="Pre-enlisted on your IPS">pre</span>` : ""}</span>
       <input class="sec" aria-label="Section you already have for ${esc(it.label)}" placeholder="section" value="${esc(S.got[it.id] != null ? CLS[S.got[it.id]].section : it.section)}" ${S.got[it.id] != null ? "disabled" : ""}>
       <span class="state"></span>
-      <button class="x" aria-label="Remove ${esc(it.label)}">×</button>`;
+      <button class="x" aria-label="Remove ${esc(it.label)}">×</button>${isPE(it) ? peSelectHTML(it) : ""}`;
     const inp = li.querySelector(".sec"), st = li.querySelector(".state");
+    const pe = li.querySelector(".pe");
+    if (pe) pe.onchange = () => {
+      it.pe = pe.value;
+      it.codes = pe.value === "short" ? it.baseCodes.slice() : pe.value === "any" ? DATA.groups.PATHFit.slice() : [pe.value];
+      delete S.pins[it.id]; S.idx = 0; save(); render();
+    };
     const paint = () => {
       const f = fixedOf(it);
       inp.classList.toggle("err", !!(f && f.err));
