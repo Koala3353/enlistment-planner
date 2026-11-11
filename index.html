@@ -429,6 +429,7 @@ function profScore(c) {
   else if (b >= 0) { r.s = 1.5 - Math.min(b, 4) * 0.1; r.batch = b + 1; }  // built-in batch ranking; always above unranked (max 1.0)
   return r;
 }
+const skipName = pk => { const c = CLASSES.find(c => c.pk === pk); return c ? profName(c) : pk; };
 function toggleAvoid(pk) {
   const a = S.prefs.avoid;
   S.prefs.avoid = a.includes(pk) ? a.filter(x => x !== pk) : [...a, pk];
@@ -770,6 +771,8 @@ function renderResult() {
     </div></div>`;
   const deadMine = S.dead.map(id => CLS[id]).filter(Boolean);
   if (deadMine.length) $("#notes").insertAdjacentHTML("beforeend", `<div class="note soft deadbar"><b>Marked full by you:</b> ${deadMine.map(c => `<button class="chip" data-unfull="${c.id}" title="Put it back in the planner">${esc(c.subject + " " + c.section)} ✕</button>`).join(" ")}${deadMine.length > 1 ? ` <button class="chip" data-unfull="all">Undo all</button>` : ""}</div>`);
+  if (S.prefs.avoid.length) $("#notes").insertAdjacentHTML("beforeend", `<div class="note soft deadbar"><b>Profs you skipped:</b> ${S.prefs.avoid.map(pk => `<button class="chip" data-unskip="${esc(pk)}" title="Stop skipping this prof">${esc(skipName(pk))} ✕</button>`).join(" ")}${S.prefs.avoid.length > 1 ? ` <button class="chip" data-unskip="all">Undo all</button>` : ""}</div>`);
+  document.querySelectorAll("[data-unskip]").forEach(b => b.onclick = () => { if (b.dataset.unskip === "all") { S.prefs.avoid = []; changed(); } else toggleAvoid(b.dataset.unskip); });
   document.querySelectorAll("[data-unfull]").forEach(b => b.onclick = () => { const v = b.dataset.unfull; S.dead = v === "all" ? [] : S.dead.filter(id => id !== +v); save(); renderResult(); });
   body.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => { delete S.got[b.dataset.undo]; save(); render(); });
   if (picks.length) wirePicks(picks, st);
@@ -853,6 +856,7 @@ function wirePicks(picks, st) {
         w.innerHTML = opening ? altsHTML(it, st) : ""; b.setAttribute("aria-expanded", opening);
         w.querySelectorAll("[data-pin]").forEach(x => x.onclick = () => { S.pins[it.id] = +x.dataset.pin; S.idx = 0; save(); renderResult(); });
         w.querySelectorAll("[data-fav]").forEach(x => x.onclick = () => toggleFav(x.dataset.fav));
+        w.querySelectorAll("[data-unskip]").forEach(x => x.onclick = () => toggleAvoid(x.dataset.unskip));
         w.querySelectorAll("[data-unfull]").forEach(x => x.onclick = () => { S.dead = S.dead.filter(id => id !== +x.dataset.unfull); save(); renderResult(); });
       }
     });
@@ -878,7 +882,7 @@ function altsHTML(it, st) {
   return `<div class="alts">${rows.slice(0, 80).map(({c, why, cur}) => `<div class="alt ${why ? "no" : ""}">
       <div><span class="mono" style="font-weight:600">${esc(it.codes.length > 1 ? c.subject + " " + c.section : c.section)}</span> · ${esc(when(c))} ${slotsHTML(c)}<br>
         <span style="font-size:12.5px">${profLine(c)}</span>${why ? `<div class="r">${esc(why)}</div>` : ""}</div>
-      <div style="display:flex;gap:4px;align-items:center">${c.pk ? `<button class="chip" data-fav="${esc(c.pk)}" title="${favIdx(c) >= 0 ? "Remove from" : "Add to"} preferred profs" aria-label="${favIdx(c) >= 0 ? "Unprefer" : "Prefer"} ${esc(profName(c))}">${favIdx(c) >= 0 ? "★" : "☆"}</button>` : ""}${cur ? `<span class="mute" style="font-size:12px">current</span>` : S.dead.includes(c.id) ? `<button class="chip" data-unfull="${c.id}">Not full</button>` : canPin(why) ? `<button class="chip" data-pin="${c.id}">Use</button>` : ""}</div>
+      <div style="display:flex;gap:4px;align-items:center">${c.pk ? `<button class="chip" data-fav="${esc(c.pk)}" title="${favIdx(c) >= 0 ? "Remove from" : "Add to"} preferred profs" aria-label="${favIdx(c) >= 0 ? "Unprefer" : "Prefer"} ${esc(profName(c))}">${favIdx(c) >= 0 ? "★" : "☆"}</button>` : ""}${cur ? `<span class="mute" style="font-size:12px">current</span>` : S.dead.includes(c.id) ? `<button class="chip" data-unfull="${c.id}">Not full</button>` : c.pk && S.prefs.avoid.includes(c.pk) ? `<button class="chip" data-unskip="${esc(c.pk)}">Unskip prof</button>` : canPin(why) ? `<button class="chip" data-pin="${c.id}">Use</button>` : ""}</div>
     </div>`).join("")}</div>`;
 }
 $("#prev").onclick = () => { S.idx--; save(); renderResult(); };
