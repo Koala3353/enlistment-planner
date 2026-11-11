@@ -78,6 +78,7 @@ h2{font:700 19px/1.2 var(--display);margin:0;letter-spacing:-.01em}
 @media(max-width:920px){.layout{grid-template-columns:1fr}}
 .note{border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:10px;background:var(--badbg);color:#7a1f1f}
 .note.soft{background:#fff8d6;color:#5c4a00}
+.deadbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .empty{border:1.5px dashed #cfd3db;border-radius:var(--r);padding:36px 20px;text-align:center;color:var(--mute)}
 .empty b{display:block;color:var(--ink);font:700 18px var(--display);margin-bottom:6px}
 
@@ -486,10 +487,11 @@ function lookupSection(it) {
   let cands = it.codes.flatMap(code => (BYSUBJ[code] || []).filter(c => c.section.toUpperCase() === v));
   if (!cands.length && v.includes(" ")) {
     const sec = v.split(" ").pop(), subj = v.slice(0, -sec.length).trim();
-    cands = it.codes.filter(code => code.toUpperCase() === subj).flatMap(code => (BYSUBJ[code] || []).filter(c => c.section.toUpperCase() === sec));
+    cands = it.codes.filter(code => { const u = code.toUpperCase(); return u === subj || u.endsWith(" " + subj); })
+      .flatMap(code => (BYSUBJ[code] || []).filter(c => c.section.toUpperCase() === sec));
   }
   if (cands.length === 1) return {cls: cands[0]};
-  if (cands.length > 1) return {err: `${cands.length} subjects have section ${v}. Type it like “${cands[0].subject} ${cands[0].section}”`};
+  if (cands.length > 1) return {err: `${v} exists in ${cands.map(c => c.subject).join(" and ")}. Type which one, e.g. “${cands[0].subject.split(" ").pop()} ${cands[0].section}”`};
   return {err: "no section " + v + " this term"};
 }
 
@@ -524,7 +526,7 @@ function solve() {
       else if (!isHeld && restrictWhy(c)) why = restrictWhy(c);
       else if (!isHeld && c.pk && (DATA.skip || {})[c.pk] != null) why = "skipped: " + DATA.skip[c.pk];
       else if (!isHeld && c.pk && S.prefs.avoid.includes(c.pk)) why = "you're skipping this prof";
-      else if (!isHeld && isDead(c)) why = "full";
+      else if (!isHeld && isDead(c)) why = S.dead.includes(c.id) ? "you marked it full" : "full";
       else if (!isHeld && !genderOk(c)) why = c.gender === "M" ? "men only" : "women only";
       else if (!isHeld && !pin && hourReason(c)) why = hourReason(c);
       else if (hits(c, fixedMs)) { const f = fixed.find(f => hits(c, f.meetings)); why = "clashes with your " + f.subject + " " + f.section; }
@@ -766,6 +768,9 @@ function renderResult() {
         ? `<li class="pick" style="background:#fbfbfc;padding:10px 18px;counter-increment:none"><b style="font:700 13px var(--display)">Then swap your pre-enlisted subjects</b><div class="mute" style="font-size:12.5px">Already on your IPS. Change sections to these better fits once the rest are in.</div></li>` : "") + pickHTML(p, st)).join("")}${fixedHTML}</ol>
       ${picks.length ? `<div class="ticket-foot"><button class="btn solid small" id="copyBtn">Copy list</button><span class="mute" id="copyMsg" style="font-size:12.5px"></span></div>` : ""}
     </div></div>`;
+  const deadMine = S.dead.map(id => CLS[id]).filter(Boolean);
+  if (deadMine.length) $("#notes").insertAdjacentHTML("beforeend", `<div class="note soft deadbar"><b>Marked full by you:</b> ${deadMine.map(c => `<button class="chip" data-unfull="${c.id}" title="Put it back in the planner">${esc(c.subject + " " + c.section)} ✕</button>`).join(" ")}${deadMine.length > 1 ? ` <button class="chip" data-unfull="all">Undo all</button>` : ""}</div>`);
+  document.querySelectorAll("[data-unfull]").forEach(b => b.onclick = () => { const v = b.dataset.unfull; S.dead = v === "all" ? [] : S.dead.filter(id => id !== +v); save(); renderResult(); });
   body.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => { delete S.got[b.dataset.undo]; save(); render(); });
   if (picks.length) wirePicks(picks, st);
 }
@@ -848,6 +853,7 @@ function wirePicks(picks, st) {
         w.innerHTML = opening ? altsHTML(it, st) : ""; b.setAttribute("aria-expanded", opening);
         w.querySelectorAll("[data-pin]").forEach(x => x.onclick = () => { S.pins[it.id] = +x.dataset.pin; S.idx = 0; save(); renderResult(); });
         w.querySelectorAll("[data-fav]").forEach(x => x.onclick = () => toggleFav(x.dataset.fav));
+        w.querySelectorAll("[data-unfull]").forEach(x => x.onclick = () => { S.dead = S.dead.filter(id => id !== +x.dataset.unfull); save(); renderResult(); });
       }
     });
   }
@@ -872,7 +878,7 @@ function altsHTML(it, st) {
   return `<div class="alts">${rows.slice(0, 80).map(({c, why, cur}) => `<div class="alt ${why ? "no" : ""}">
       <div><span class="mono" style="font-weight:600">${esc(it.codes.length > 1 ? c.subject + " " + c.section : c.section)}</span> · ${esc(when(c))} ${slotsHTML(c)}<br>
         <span style="font-size:12.5px">${profLine(c)}</span>${why ? `<div class="r">${esc(why)}</div>` : ""}</div>
-      <div style="display:flex;gap:4px;align-items:center">${c.pk ? `<button class="chip" data-fav="${esc(c.pk)}" title="${favIdx(c) >= 0 ? "Remove from" : "Add to"} preferred profs" aria-label="${favIdx(c) >= 0 ? "Unprefer" : "Prefer"} ${esc(profName(c))}">${favIdx(c) >= 0 ? "★" : "☆"}</button>` : ""}${cur ? `<span class="mute" style="font-size:12px">current</span>` : canPin(why) ? `<button class="chip" data-pin="${c.id}">Use</button>` : ""}</div>
+      <div style="display:flex;gap:4px;align-items:center">${c.pk ? `<button class="chip" data-fav="${esc(c.pk)}" title="${favIdx(c) >= 0 ? "Remove from" : "Add to"} preferred profs" aria-label="${favIdx(c) >= 0 ? "Unprefer" : "Prefer"} ${esc(profName(c))}">${favIdx(c) >= 0 ? "★" : "☆"}</button>` : ""}${cur ? `<span class="mute" style="font-size:12px">current</span>` : S.dead.includes(c.id) ? `<button class="chip" data-unfull="${c.id}">Not full</button>` : canPin(why) ? `<button class="chip" data-pin="${c.id}">Use</button>` : ""}</div>
     </div>`).join("")}</div>`;
 }
 $("#prev").onclick = () => { S.idx--; save(); renderResult(); };
