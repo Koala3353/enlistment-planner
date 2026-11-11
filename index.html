@@ -539,13 +539,15 @@ function solve() {
     if (pin && rejected[it.id].length) soft.push(`Your pinned ${pin.subject} ${pin.section} can't be used (${rejected[it.id][0].why}).`);
   }
   // a subject with no possible section is flagged but doesn't block planning everything else
-  const blocked = open.filter(it => !opts[it.id].length);
+  const blocked = open.filter(it => !opts[it.id].length), blockedWhy = {};
   for (const it of blocked) {
     const why = [...new Set((rejected[it.id] || []).map(r => r.why.replace(/^clashes with your /, "clashes with your ")))];
     const detail = (rejected[it.id] || []).filter(r => /clashes with your/.test(r.why)).map(r => r.c.section + " " + r.why).slice(0, 2);
-    problems.push(rejected[it.id].length
-      ? `No ${it.label} section fits: ${detail.length ? detail.join("; ") + (why.some(w => w === "full") ? "; the rest are full" : "") : why.slice(0, 3).join(", ")}. Everything else is planned below without it.`
-      : `${it.label} isn't offered this term.`);
+    const msg = rejected[it.id].length
+      ? `${detail.length ? detail.join("; ") + (why.some(w => w === "full") ? "; the rest are full" : "") : why.slice(0, 3).join(", ")}`
+      : "not offered this term";
+    blockedWhy[it.id] = msg;
+    problems.push(`No ${it.label} section fits: ${msg}. Everything else is planned without it.`);
   }
   const hardStop = problems.length - blocked.length > 0;    // e.g. two of your own sections overlap
   open = open.filter(it => opts[it.id].length);
@@ -604,7 +606,7 @@ function solve() {
       + (frees.length ? Math.min(Math.min(...frees), 10) * 0.15 : 0);
   }
   combos.sort((a, b) => b.final - a.final);
-  return {combos: combos.slice(0, 40), fixed, fixedByItem, open, problems, soft, opts, rejected, ps};
+  return {combos: combos.slice(0, 40), fixed, fixedByItem, open, blocked, blockedWhy, problems, soft, opts, rejected, ps};
 }
 /* how much each subject's prof quality counts: PHILO most, other self-enlisted next,
    pre-enlisted (swappable later) least, so they bend around the rest */
@@ -724,26 +726,36 @@ function renderResult() {
     $("#emptyPaste").onclick = openPaste;
     return;
   }
-  if (!R.open.length) {
-    body.innerHTML = `<div class="layout"><div>${gridHTML([])}</div><div class="ticket"><div class="ticket-head"><h3>All set</h3></div><p style="padding:0 18px 8px">Every subject has a section. Nothing left to enlist.</p></div></div>`;
-    return;
-  }
-  if (!n) { body.innerHTML = `<div class="layout"><div>${gridHTML([])}</div><div></div></div>`; return; }
-  const st = R.combos[S.idx];
-  const picks = R.open.map(it => ({it, c: st.as[it.id]}));
+  const st = n ? R.combos[S.idx] : null;
+  const picks = st ? R.open.map(it => ({it, c: st.as[it.id]})) : [];
   // enlist order: your own subjects (PHILO first, then fewest slots), then swaps for pre-enlisted ones
   const slots = c => c.free === "" ? 999 : +c.free;
   picks.sort((a, b) => (a.it.pre - b.it.pre) || (itemWeight(b.it) - itemWeight(a.it)) || slots(a.c) - slots(b.c) || R.ps[b.c.id] - R.ps[a.c.id]);
   const hasSlots = picks.some(p => p.c.free !== "");
+  // subjects that couldn't be planned: no fitting section, or the rest can't combine
+  const stuck = [...(R.blocked || []).map(it => ({it, why: R.blockedWhy[it.id]})),
+                 ...(!st ? R.open.map(it => ({it, why: "can't fit together with your other subjects under these settings"})) : [])];
+  const fixedRows = S.items.filter(it => R.fixedByItem[it.id]).map(it => ({it, c: R.fixedByItem[it.id]}));
+  const stuckHTML = stuck.map(({it, why}) => `<li class="pick" style="counter-increment:none;background:var(--badbg)">
+      <div class="pick-title"><span class="dot" style="background:${colorOf(it)}"></span><span class="subjc">${esc(it.label)}</span><span class="tag badt">can't fit right now</span></div>
+      <div class="backups" style="color:#7a1f1f">${esc(why)}.</div></li>`).join("");
+  const fixedHTML = fixedRows.length ? `<li class="pick" style="background:#fbfbfc;padding:10px 18px;counter-increment:none"><b style="font:700 13px var(--display)">Already set</b></li>` + fixedRows.map(({it, c}) => {
+      const got = S.got[it.id] != null, label = got ? "✓ enlisted" : it.pre ? "kept (pre-enlisted)" : "you have this";
+      return `<li class="pick" data-fixed="${it.id}" style="counter-increment:none">
+        <div class="pick-title"><span class="dot" style="background:${colorOf(it)}"></span><span class="subjc">${esc(c.subject)}</span><span class="mono" style="font-weight:600">${esc(c.section)}</span><span class="tag ${got ? "good" : ""}">${label}</span></div>
+        <div class="pick-when">${esc(when(c))}</div><div class="pick-prof">${profLine(c)}</div>
+        ${got ? `<div class="pick-acts"><button class="chip" data-undo="${it.id}">Undo ✓</button></div>` : ""}</li>`; }).join("") : "";
+  const total = S.items.length, planned = picks.length + fixedRows.length;
   body.innerHTML = `<div class="layout"><div>${gridHTML(picks)}</div>
     <div class="ticket">
-      <div class="ticket-head"><h3>Enlist these</h3><span class="mute" style="font-size:12.5px">${hasSlots ? "fewest slots first" : "in this order"}</span><div class="spacer"></div>
-        <span class="mute" style="font-size:12.5px">${st.days} day${st.days === 1 ? "" : "s"} on campus</span></div>
-      <ol class="picks">${picks.map((p, i) => (p.it.pre && (i === 0 || !picks[i - 1].it.pre)
-        ? `<li class="pick" style="background:#fbfbfc;padding:10px 18px;counter-increment:none"><b style="font:700 13px var(--display)">Then swap your pre-enlisted subjects</b><div class="mute" style="font-size:12.5px">Already on your IPS. Change sections to these better fits once the rest are in.</div></li>` : "") + pickHTML(p, st)).join("")}</ol>
-      <div class="ticket-foot"><button class="btn solid small" id="copyBtn">Copy list</button><span class="mute" id="copyMsg" style="font-size:12.5px"></span></div>
+      <div class="ticket-head"><h3>${picks.length ? "Enlist these" : stuck.length ? "Needs attention" : "All set"}</h3><span class="mute" style="font-size:12.5px">${picks.length ? (hasSlots ? "fewest slots first" : "in this order") : ""}</span><div class="spacer"></div>
+        <span class="mute" style="font-size:12.5px">${planned} of ${total} subjects placed${st ? ` · ${st.days} day${st.days === 1 ? "" : "s"} on campus` : ""}</span></div>
+      <ol class="picks">${stuckHTML}${picks.map((p, i) => (p.it.pre && (i === 0 || !picks[i - 1].it.pre)
+        ? `<li class="pick" style="background:#fbfbfc;padding:10px 18px;counter-increment:none"><b style="font:700 13px var(--display)">Then swap your pre-enlisted subjects</b><div class="mute" style="font-size:12.5px">Already on your IPS. Change sections to these better fits once the rest are in.</div></li>` : "") + pickHTML(p, st)).join("")}${fixedHTML}</ol>
+      ${picks.length ? `<div class="ticket-foot"><button class="btn solid small" id="copyBtn">Copy list</button><span class="mute" id="copyMsg" style="font-size:12.5px"></span></div>` : ""}
     </div></div>`;
-  wirePicks(picks, st);
+  body.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => { delete S.got[b.dataset.undo]; save(); render(); });
+  if (picks.length) wirePicks(picks, st);
 }
 const pairKeys = c => DATA.pairs[KEY(c)] || [];
 function fitsWith(c, st, it) {
@@ -853,7 +865,14 @@ function altsHTML(it, st) {
     </div>`).join("")}</div>`;
 }
 $("#prev").onclick = () => { S.idx--; save(); renderResult(); };
-document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => { S.view = b.dataset.v; S.idx = 0; save(); render(); });
+document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => {
+  const from = S.view || "best", to = b.dataset.v; if (from === to) return;
+  S.viewState = S.viewState || {};
+  S.viewState[from] = {idx: S.idx, pins: S.pins};                 // remember this view's choices
+  const v = S.viewState[to] || {idx: 0, pins: {}};
+  S.view = to; S.idx = v.idx || 0; S.pins = v.pins || {};          // restore the other view's
+  save(); render();
+});
 $("#next").onclick = () => { S.idx++; save(); renderResult(); };
 
 /* ---------------- timetable ---------------- */
