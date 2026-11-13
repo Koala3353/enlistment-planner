@@ -62,7 +62,7 @@ h2{font:700 19px/1.2 var(--display);margin:0;letter-spacing:-.01em}
 .pretoggle.on{border-style:solid;border-color:#e9cf5a;background:var(--hi2);color:#7a5b00}
 .subj .x:hover{color:var(--bad)}
 .dot{width:10px;height:10px;border-radius:3px;flex:none}
-.subj .pe{order:6;flex-basis:calc(100% - 18px);margin-left:18px;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;background:#fff;max-width:calc(100% - 18px)}
+.subj .pe,.subj .secpick{order:6;flex-basis:calc(100% - 18px);margin-left:18px;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;background:#fff;max-width:calc(100% - 18px)}
 .add{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .add input{flex:1;min-width:180px;max-width:340px;border:1px solid var(--line);border-radius:999px;padding:8px 16px;background:var(--paper)}
 .err-msg{color:var(--bad);font-size:13px;margin-top:6px}
@@ -356,6 +356,7 @@ let S;
 try { S = JSON.parse(localStorage.getItem(LS)); } catch (e) { S = null; }
 if (!S || !S.prefs || !S.items) S = defaults();
 S.prefs = Object.assign(defaults().prefs, S.prefs);
+S.dead = [...new Set(S.dead || [])];
 /* when the plan in the data changes (e.g. IE 1 widened), update saved subjects' allowed
    codes but keep any sections, ✓ marks and pins the user already set */
 if ((S.planV || 1) !== (DATA.plan.version || 1)) {
@@ -497,7 +498,7 @@ function lookupSection(it) {
       .flatMap(code => (BYSUBJ[code] || []).filter(c => c.section.toUpperCase() === sec));
   }
   if (cands.length === 1) return {cls: cands[0]};
-  if (cands.length > 1) return {err: `${v} exists in ${cands.map(c => c.subject).join(" and ")}. Type which one, e.g. “${cands[0].subject.split(" ").pop()} ${cands[0].section}”`};
+  if (cands.length > 1) return {err: `${v} is in ${cands.length} subjects. Pick yours below.`, choices: cands};
   return {err: "no section " + v + " this term"};
 }
 
@@ -703,6 +704,14 @@ function renderSubjects() {
       st.className = "state" + (f && f.got ? " got" : f && f.err ? " err" : "");
       st.textContent = f ? (f.got ? "✓ enlisted" : f.err ? f.err : "current: " + when(f.cls) + (S.view === "keep" ? " · kept" : " · may suggest a swap")) : it.pre ? "type your current section" : "planner picks";
       st.title = st.textContent;
+      // ambiguous section (e.g. ST1 exists in four IE subjects): offer a picker instead of making you retype
+      li.querySelector(".secpick")?.remove();
+      if (f && f.choices) {
+        const sel = document.createElement("select"); sel.className = "secpick"; sel.setAttribute("aria-label", "Which section do you have?");
+        sel.innerHTML = `<option value="">Which ${esc(f.choices[0].section)} is yours?</option>` + f.choices.map(c => `<option value="${esc(c.subject.split(" ").pop() + " " + c.section)}">${esc(c.subject + " " + c.section + " · " + profName(c) + " · " + when(c))}</option>`).join("");
+        sel.onchange = () => { if (!sel.value) return; it.section = inp.value = sel.value; delete S.pins[it.id]; S.idx = 0; save(); paint(); renderResult(); };
+        li.appendChild(sel);
+      }
     };
     paint();
     inp.oninput = () => { it.section = inp.value; delete S.pins[it.id]; S.idx = 0; save(); paint(); renderResult(); };
@@ -870,7 +879,7 @@ function wirePicks(picks, st) {
         S.got[it.id] = c.id;
         for (const pk of pairKeys(c)) { const pc = BYKEY[pk], pit = pc && itemOf(pc.subject); if (pit && S.got[pit.id] == null) S.got[pit.id] = pc.id; }
         save(); render();
-      } else if (a === "full") { S.dead.push(c.id); if (S.pins[it.id] === c.id) delete S.pins[it.id]; save(); renderResult(); }
+      } else if (a === "full") { if (!S.dead.includes(c.id)) S.dead.push(c.id); if (S.pins[it.id] === c.id) delete S.pins[it.id]; save(); renderResult(); }
       else if (a === "unpin") { delete S.pins[it.id]; save(); renderResult(); }
       else if (a === "fav") toggleFav(c.pk);
       else if (a === "avoid") { if (S.pins[it.id] === c.id) delete S.pins[it.id]; toggleAvoid(c.pk); }
